@@ -8,7 +8,6 @@ from fake_useragent import UserAgent
 from bs4 import BeautifulSoup
 from langchain.schema.runnable import RunnablePassthrough, RunnableLambda
 from langchain.prompts import ChatPromptTemplate
-from langchain.chat_models import ChatOpenAIgit 
 from langchain.callbacks.base import BaseCallbackHandler
 
 
