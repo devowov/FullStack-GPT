@@ -113,15 +113,9 @@ def paint_history():
 with st.sidebar:
     st.markdown("""Github: https://github.com/devowov/FullStack-GPT""")
     api_key = st.text_input("OpenAI API 키 입력:", type="password")
-    
-st.set_page_config(
-    page_title="Research GPT",
-    page_icon="🖥️",
-)
 
 st.title("Research GPT")
 st.markdown("Research Assistant GPT를 통해 검색할 주제를 입력하세요.")
-
 
 # OpenAI API 키 유효성 검사
 def is_api_key_valid(api_key):
@@ -132,8 +126,13 @@ def is_api_key_valid(api_key):
     
     try:
         response = requests.get(url, headers=headers)
-        return response.status_code == 200
+        if response.status_code == 200:
+            return True
+        else:
+            st.sidebar.error(f"Error: {response.status_code} - {response.text}")
+            return False
     except Exception as e:
+        st.sidebar.error(f"Exception occurred: {str(e)}")
         return False
 
 # OpenAI API 키 확인 후 실행
