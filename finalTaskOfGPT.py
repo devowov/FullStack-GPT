@@ -239,8 +239,8 @@ if api_key:
             send_message("검색를 진행 중입니다...", "ai")
             
             run = assistant.run_search(user_input)
-            result = assistant.fetch_results(run)
-            
+            result = assistant.run_search(user_input)
+            # result = assistant.fetch_results(run)
             send_message(result, "ai")
     else:
         st.sidebar.error("잘못된 API 키입니다.")
