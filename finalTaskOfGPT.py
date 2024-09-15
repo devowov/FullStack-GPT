@@ -86,15 +86,20 @@ class ResearchAssistant:
 
     def fetch_results(self, run):
         if run.status == 'completed':
-            messages = self.client.beta.threads.messages.list(thread_id=run.thread_id)
+            try:
+                messages = self.client.beta.threads.messages.list(thread_id=run.thread_id)
+                
+                if messages and len(messages) > 0:
+                    assistant_reply = messages[0] 
+                    return assistant_reply.content
+                else:
+                    return "검색된 내용이 없습니다."
             
-            if messages.items:
-                assistant_reply = messages.items[0]
-                return assistant_reply.content
-            else:
-                return "No messages found."
-        
-        return "검색 실패"
+            except Exception as e:
+                return f"Error fetch_results: {str(e)}"
+        else:
+            return "검색실패"
+
 
 
 # Streamlit UI 구성
@@ -138,7 +143,7 @@ def is_api_key_valid(api_key):
             st.sidebar.error(f"Error: {response.status_code} - {response.text}")
             return False
     except Exception as e:
-        st.sidebar.error(f"Exception occurred: {str(e)}")
+        st.sidebar.error(f"Exception : {str(e)}")
         return False
 
 # OpenAI API 키 확인 후 실행
