@@ -87,9 +87,15 @@ class ResearchAssistant:
     def fetch_results(self, run):
         if run.status == 'completed':
             messages = self.client.beta.threads.messages.list(thread_id=run.thread_id)
-            assistant_reply = messages[0]
-            return assistant_reply.content
+            
+            if messages.items:
+                assistant_reply = messages.items[0]
+                return assistant_reply.content
+            else:
+                return "No messages found."
+        
         return "검색 실패"
+
 
 # Streamlit UI 구성
 st.set_page_config(page_title="Research GPT", page_icon="🔍")
