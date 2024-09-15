@@ -24,10 +24,8 @@ class WikipediaUrlSearchTool(BaseTool):
 
 # DuckDuckGo URL 검색 도구 정의
 class DuckDuckGoUrlSearchToolArgsSchema(BaseModel):
-    query: str = Field(
-        description="URL을 찾기위한 질의입니다."
-    )
-
+    keyword: str = Field(description="DuckDuckGo에서 검색할 키워드입니다.")
+    
 class DuckDuckGoUrlSearchTool(BaseTool):
     name = "DuckDuckGoUrlSearchTool"
     description = "질의를 받아 DuckDuckGo 검색 결과의 첫 번째 URL을 반환합니다."
@@ -71,7 +69,7 @@ class ResearchAssistant:
     def __init__(self, api_key):
         self.client = OpenAI(api_key=api_key)
         self.assistant = self.initialize_assistant()
-    
+        
     def initialize_assistant(self):
         return self.client.beta.assistants.create(
             name="Research Assistant"
@@ -81,26 +79,64 @@ class ResearchAssistant:
                             출처에 대한 정보를 포함한 답변은 파일로 저장한다.
             """
             , model="gpt-4o-mini"
-            , tools=[
-                WikipediaUrlSearchTool()
-                , DuckDuckGoUrlSearchTool()
-                , WebResearchTool()
-                , SaveFileTool()
+            , tools=[{
+                "type": "function"
+                , "function": {
+                    "name": "search_wikipedia",
+                    "description": "주어진 키워드를 기반으로 Wikipedia에서 상위 3개의 관련 문서를 반환합니다.",
+                    "parameters": {
+                        "type": "object"
+                        , "properties": {
+                            "keyword": {
+                                "type": "string"
+                                , "description": "Wikipedia에서 검색할 키워드."
+                            }
+                        }
+                        , "required": ["keyword"]
+                    }
+                }
+            }
+            ,{
+                "type": "function"
+                , "function": {
+                    "name": "search_duckduckgo",
+                    "description": "주어진 키워드를 기반으로 DuckDuckGo에서 상위 3개의 관련 문서를 반환합니다.",
+                    "parameters": {
+                        "type": "object"
+                        , "properties": {
+                            "keyword": {
+                                "type": "string"
+                                , "description": "DuckDuckGo에서 검색할 키워드."
+                            }
+                        }
+                        , "required": ["keyword"]
+                    }
+                }
+            }         
             ]
         )
 
     def search_wikipedia(self, keyword):
-        return WikipediaUrlSearchTool()._run(keyword)
+        wikipedia_tool = WikipediaUrlSearchTool()
+        return wikipedia_tool._run(keyword)
+    
+    def search_duckduckgo(self, keyword):
+        duckduckgo_tool = DuckDuckGoUrlSearchTool()
+        return duckduckgo_tool._run(keyword)
 
-    def run_search(self, query):
-        thread = self.client.beta.threads.create()
-        message = self.client.beta.threads.messages.create(
-            thread_id=thread.id, role="user", content=f"Research about {query}"
-        )
-        run = self.client.beta.threads.runs.create_and_poll(
-            thread_id=thread.id, assistant_id=self.assistant.id,
-        )
-        return self.process_run(run, thread.id)
+    def run_search(self, keyword):
+        try:
+            wiki_result = self.search_wikipedia(keyword)
+            ddg_result = self.search_duckduckgo(keyword)
+            
+            combined_result = f"Wikipedia 결과: {wiki_result}\n\nDuckDuckGo 결과: {ddg_result}"
+            
+            save_tool = SaveFileTool()
+            save_tool._run(combined_result)
+
+            return combined_result
+        except Exception as e:
+            return f"검색 도중 오류가 발생했습니다: {str(e)}"
 
     def process_run(self, run, thread_id):
         while run.status != 'completed':
@@ -109,16 +145,24 @@ class ResearchAssistant:
                 for tool in run.required_action.submit_tool_outputs.tool_calls:
                     tool_name = tool.function.name
                     tool_inputs = json.loads(tool.function.arguments)
-                    tool_output = self.search_wikipedia(tool_inputs['keyword'])
+
+                    wiki_output = self.search_wikipedia(tool_inputs['keyword'])
+                    duckduckgo_output = self.search_duckduckgo(tool_inputs['keyword'])
+
+                    combined_output = f"Wikipedia 결과: {wiki_output}\n\nDuckDuckGo 결과: {duckduckgo_output}"
+
                     tool_outputs.append({
                         "tool_call_id": tool.id,
-                        "output": tool_output
+                        "output": combined_output
                     })
+
                 run = self.client.beta.threads.runs.submit_tool_outputs_and_poll(
                     thread_id=thread_id, run_id=run.id, tool_outputs=tool_outputs
                 )
             else:
+                # 다른 상태일 경우, 상태를 계속해서 확인
                 run = self.client.beta.threads.runs.poll(thread_id=thread_id, run_id=run.id)
+        
         return run
 
     def fetch_results(self, run):
