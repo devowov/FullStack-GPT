@@ -2,25 +2,69 @@ import streamlit as st
 from typing import Type
 from pydantic import BaseModel, Field
 from langchain.tools import BaseTool
-from langchain.retrievers import WikipediaRetriever
+from langchain.tools import WikipediaQueryRun, DuckDuckGoSearchRun
+from langchain.utilities import WikipediaAPIWrapper
+from langchain.document_loaders import WebBaseLoader
 from openai import OpenAI
 import requests
 import json
 
-# Wikipedia 검색 도구 정의
-class WikipediaSearchToolArgsSchema(BaseModel):
+# Wikipedia URL 검색 도구 정의
+class WikipediaUrlSearchToolArgsSchema(BaseModel):
     keyword: str = Field(description="Wikipedia에서 검색할 키워드입니다.")
 
-class WikipediaSearchTool(BaseTool):
-    name = "WikipediaSearchTool"
-    description = "Wikipedia에서 키워드를 검색하고 상위 3개의 관련 문서를 반환합니다."
-    args_schema: Type[WikipediaSearchToolArgsSchema] = WikipediaSearchToolArgsSchema
+class WikipediaUrlSearchTool(BaseTool):
+    name = "WikipediaUrlSearchTool"
+    description = "질의를 받아 Wikipedia 검색 결과의 첫 번째 URL을 반환합니다."
+    args_schema: Type[WikipediaUrlSearchToolArgsSchema] = WikipediaUrlSearchToolArgsSchema
 
-    def _run(self, keyword: str):
-        retriever = WikipediaRetriever(top_k_results=3, lang="en")
-        docs = retriever.get_relevant_documents(keyword)
-        result = "\n\n".join([doc.page_content for doc in docs])
-        return result
+    def _run(self, query):
+        wiki = WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper())
+        return wiki.run(query)
+
+# DuckDuckGo URL 검색 도구 정의
+class DuckDuckGoUrlSearchToolArgsSchema(BaseModel):
+    query: str = Field(
+        description="URL을 찾기위한 질의입니다."
+    )
+
+class DuckDuckGoUrlSearchTool(BaseTool):
+    name = "DuckDuckGoUrlSearchTool"
+    description = "질의를 받아 DuckDuckGo 검색 결과의 첫 번째 URL을 반환합니다."
+    args_schema: Type[DuckDuckGoUrlSearchToolArgsSchema] = DuckDuckGoUrlSearchToolArgsSchema
+
+    def _run(self, query):
+        ddg = DuckDuckGoSearchRun()
+        return ddg.run(query)
+
+# 웹 스크래핑 도구 정의
+class WebResearchToolArgsSchema(BaseModel):
+    url: str = Field(
+        description="스크래핑할 URL입니다."
+    )
+
+class WebResearchTool(BaseTool):
+    name = "WebResearchTool"
+    description = "URL에서 텍스트를 로드하여 문서로 반환합니다."
+    args_schema: Type[WebResearchToolArgsSchema] = WebResearchToolArgsSchema
+
+    def _run(self, url):
+        wl = WebBaseLoader(url)
+        return wl.load()
+
+# 파일 저장 도구 정의
+class SaveFileToolArgsSchema(BaseModel):
+    doc: str
+
+class SaveFileTool(BaseTool):
+    name = "SaveFileTool"
+    description = "스크래핑된 문서를 파일로 저장합니다."
+    args_schema: Type[SaveFileToolArgsSchema] = SaveFileToolArgsSchema
+
+    def _run(self, doc):
+        with open('research_doc.txt', 'w', encoding='utf-8') as f:
+            f.write(doc)
+        return "저장 완료"
 
 # OpenAI 에이전트 설정
 class ResearchAssistant:
@@ -31,29 +75,22 @@ class ResearchAssistant:
     def initialize_assistant(self):
         return self.client.beta.assistants.create(
             name="Research Assistant"
-            , instructions="You are a personal Research Assistant. You help users research topics."
+            , instructions=""" 주어진 키워드를 기반으로 Wikipedia와 DuckDuckGo에서 검색하여 결과를 제공해야한다.
+                            검색하여 찾은 정보는 결합하여 제일 적절하다고 생각할 때 답변한다.
+                            답변은 한글로 한다.
+                            출처에 대한 정보를 포함한 답변은 파일로 저장한다.
+            """
             , model="gpt-4o-mini"
-            , tools=[{
-                "type": "function"
-                , "function": {
-                    "name": "search_wikipedia",
-                    "description": "주어진 키워드를 기반으로 Wikipedia에서 상위 3개의 관련 문서를 반환합니다.",
-                    "parameters": {
-                        "type": "object"
-                        , "properties": {
-                            "keyword": {
-                                "type": "string"
-                                , "description": "Wikipedia에서 검색할 키워드."
-                            }
-                        }
-                        , "required": ["keyword"]
-                    }
-                }
-            }]
+            , tools=[
+                WikipediaUrlSearchTool()
+                , DuckDuckGoUrlSearchTool()
+                , WebResearchTool()
+                , SaveFileTool()
+            ]
         )
 
     def search_wikipedia(self, keyword):
-        return WikipediaSearchTool()._run(keyword)
+        return WikipediaUrlSearchTool()._run(keyword)
 
     def run_search(self, query):
         thread = self.client.beta.threads.create()
@@ -100,8 +137,6 @@ class ResearchAssistant:
         else:
             return "검색실패"
 
-
-
 # Streamlit UI 구성
 st.set_page_config(page_title="Research GPT", page_icon="🔍")
 
@@ -140,10 +175,10 @@ def is_api_key_valid(api_key):
         if response.status_code == 200:
             return True
         else:
-            st.sidebar.error(f"Error: {response.status_code} - {response.text}")
+            print(f"Error: {response.status_code} - {response.text}")
             return False
     except Exception as e:
-        st.sidebar.error(f"Exception : {str(e)}")
+        print(f"Exception : {str(e)}")
         return False
 
 # OpenAI API 키 확인 후 실행
